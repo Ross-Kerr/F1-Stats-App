@@ -1,108 +1,115 @@
-import sys
-import fastf1 as ff1
-import fastf1.plotting
-from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QVBoxLayout, QWidget, QComboBox, QLabel
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-import matplotlib.pyplot as plt
+import tkinter as tk
+from tkinter import ttk
+import logging
+import fastf1
+import pandas as pd
+from F1MongoDBHandler import F1MongoDBHandler  # Assuming this file is available
+from F1DataFetcher import F1DataFetcher  # Assuming this file is available
 
-class F1TireStrategyApp(QMainWindow):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("F1 Race Data Viewer")
-        self.setGeometry(100, 100, 800, 600)
+# Set up logging
+logging.basicConfig(level=logging.INFO)
 
-        self.tyre_canvas = FigureCanvas(plt.figure())
-        self.position_canvas = FigureCanvas(plt.figure())
-        self.race_selector = QComboBox()
-        self.load_button = QPushButton("Load Data")
-        self.plot_tyre_button = QPushButton("Plot Tyre Strategy")
-        self.plot_position_button = QPushButton("Plot Position Changes")
+class F1StatsApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("F1 Stats Application")
 
-        self.race_selector.addItems([
-            "Bahrain", "Saudi Arabia", "Australia", "Japan", "China", "Miami", "Imola", "Monaco", "Canada", "Spain", "Austria", "Great Britain", "Hungary", "Belgium", "Netherlands", "Italy", "Singapore", "USA", "Mexico", "Brazil", "Las Vegas", "Qatar", "Abu Dhabi"
-        ])
-        
-        self.load_button.clicked.connect(self.load_data)
-        self.plot_tyre_button.clicked.connect(self.plot_tyre_strategy)
-        self.plot_position_button.clicked.connect(self.plot_position_changes)
+        # Create instances of F1DataFetcher and F1MongoDBHandler
+        self.db_handler = F1MongoDBHandler()
 
-        layout = QVBoxLayout()
-        layout.addWidget(QLabel("Select a Grand Prix:"))
-        layout.addWidget(self.race_selector)
-        layout.addWidget(self.load_button)
-        layout.addWidget(self.plot_tyre_button)
-        layout.addWidget(self.tyre_canvas)
-        layout.addWidget(self.plot_position_button)
-        layout.addWidget(self.position_canvas)
+        # Frame to hold all the widgets
+        self.frame = ttk.Frame(self.root)
+        self.frame.grid(row=0, column=0, padx=10, pady=10)
 
-        container = QWidget()
-        container.setLayout(layout)
-        self.setCentralWidget(container)
+        # Year selection dropdown
+        self.year_label = ttk.Label(self.frame, text="Select Year:")
+        self.year_label.grid(row=0, column=0, sticky='w', pady=5)
+        self.year_combobox = ttk.Combobox(self.frame, values=[2024, 2023, 2022, 2021, 2020], state="readonly")
+        self.year_combobox.grid(row=0, column=1, pady=5)
 
-        self.session = None
-        self.stints = None
-        self.drivers = None
-    
-    def load_data(self):
-        selected_race = self.race_selector.currentText()
-        self.session = ff1.get_session(2024, selected_race, 'R')
-        self.session.load()
-        laps = self.session.laps
-        self.drivers = [self.session.get_driver(driver)['Abbreviation'] for driver in self.session.drivers]
-        self.stints = laps[["Driver", "Stint", "Compound", "LapNumber"]].groupby(["Driver", "Stint", "Compound"]).count().reset_index()
-        self.stints = self.stints.rename(columns={"LapNumber": "StintLength"})
-        print(f"Data Loaded Successfully for {selected_race}!")
-    
-    def plot_tyre_strategy(self):
-        if self.session is None or self.stints is None:
-            print("Please load data first!")
-            return
+        # Hardcoded list of races for the race dropdown
+        self.race_label = ttk.Label(self.frame, text="Select Race:")
+        self.race_label.grid(row=1, column=0, sticky='w', pady=5)
         
-        fig, ax = plt.subplots(figsize=(6, 10))
-        
-        for driver in self.drivers:
-            driver_stints = self.stints.loc[self.stints["Driver"] == driver]
-            previous_stint_end = 0  # Reset for each driver
-            for _, row in driver_stints.iterrows():
-                compound_color = fastf1.plotting.get_compound_color(row["Compound"], session=self.session)
-                ax.barh(driver, width=row["StintLength"], left=previous_stint_end, color=compound_color, edgecolor="black")
-                previous_stint_end += row["StintLength"]
-        
-        ax.set_title(f"2024 {self.race_selector.currentText()} Grand Prix Strategies")
-        ax.set_xlabel("Lap Number")
-        ax.invert_yaxis()
-        self.tyre_canvas.figure.clf()
-        self.tyre_canvas.figure = fig
-        self.tyre_canvas.draw()
-        print("Tyre Strategy Plot Generated Successfully!")
-    
-    def plot_position_changes(self):
-        if self.session is None:
-            print("Please load data first!")
-            return
-        
-        fig, ax = plt.subplots(figsize=(8, 4.9))
-        
-        for drv in self.session.drivers:
-            drv_laps = self.session.laps.pick_drivers(drv)
-            abb = drv_laps['Driver'].iloc[0]
-            style = fastf1.plotting.get_driver_style(identifier=abb, style=['color', 'linestyle'], session=self.session)
-            ax.plot(drv_laps['LapNumber'], drv_laps['Position'], label=abb, **style)
-        
-        ax.set_ylim([20.5, 0.5])
-        ax.set_yticks([1, 5, 10, 15, 20])
-        ax.set_xlabel('Lap')
-        ax.set_ylabel('Position')
-        ax.legend(bbox_to_anchor=(1.0, 1.02))
-        plt.tight_layout()
-        
-        self.position_canvas.figure.clf()
-        self.position_canvas.figure = fig
-        self.position_canvas.draw()
-        print("Position Changes Plot Generated Successfully!")
+        # Hardcoding the race options
+        self.race_combobox = ttk.Combobox(self.frame, state="readonly")
+        self.race_combobox['values'] = [
+            "Bahrain", "Saudi Arabia", "Australia", "China", "Miami", "Monaco", 
+            "Azerbaijan", "Canada", "Austria", "Britain", "Hungary", "Belgium", 
+            "Netherlands", "Italy", "Singapore", "Japan", "USA", "Mexico", 
+            "Brazil", "Abu Dhabi"
+        ]
+        self.race_combobox.grid(row=1, column=1, pady=5)
 
+        # Session type selection (Race or Qualifying)
+        self.session_label = ttk.Label(self.frame, text="Select Session Type:")
+        self.session_label.grid(row=2, column=0, sticky='w', pady=5)
+        self.session_combobox = ttk.Combobox(self.frame, values=["Race", "Qualifying"], state="readonly")
+        self.session_combobox.grid(row=2, column=1, pady=5)
+
+        # Button to begin fetching and loading data
+        self.fetch_button = ttk.Button(self.frame, text="Fetch and Load Data", command=self.fetch_and_load_data)
+        self.fetch_button.grid(row=3, column=0, columnspan=2, pady=10)
+
+        # Populate the race dropdown based on the selected year
+        self.year_combobox.bind("<<ComboboxSelected>>", self.update_race_dropdown)
+
+        # Frame for displaying status or messages
+        self.status_frame = ttk.Frame(self.root)
+        self.status_frame.grid(row=1, column=0, padx=10, pady=10)
+
+        self.status_label = ttk.Label(self.status_frame, text="Status: Waiting for input...")
+        self.status_label.grid(row=0, column=0, pady=5)
+
+        # Initialize selected year and race variables
+        self.selected_year = None
+        self.selected_race = None
+
+    def update_race_dropdown(self, event):
+        """
+        Update the race dropdown based on the selected year.
+        """
+        self.selected_year = self.year_combobox.get()
+        logging.info(f"Selected year: {self.selected_year}")
+        # Optionally, filter races based on the year if needed
+
+    def fetch_and_load_data(self):
+        # Get the selected year, race, and session type
+        selected_year = self.year_combobox.get()
+        selected_race = self.race_combobox.get()
+        session_type = self.session_combobox.get()[0]  # Get the first letter of the session type
+
+        logging.info(f"Fetching data for {selected_race} {selected_year} ({session_type} session)")
+        
+
+        # Initialize F1DataFetcher with selected parameters
+        data_fetcher = F1DataFetcher(year=selected_year, race_name=selected_race, session_type=session_type)
+
+        try:
+            # Load the session data (this will also fetch laps, driver, and weather data)
+            data_fetcher.load_session_data(session_type)
+            laps_data = data_fetcher.get_lap_data()  # Get the lap data after loading the session
+        
+            # If there's no lap data, log a warning
+            if laps_data is None or laps_data.empty:
+                logging.warning("No lap data found for this session.")
+                return
+        
+            # Clean the data (pass the race_name along)
+            cleaned_data = self.db_handler.clean_data(laps_data, selected_race)
+
+            # Insert the cleaned data into MongoDB
+            self.db_handler.insert_data(cleaned_data)
+        
+            logging.info(f"Successfully fetched and stored data for {selected_race} ({session_type} session)")
+
+        except Exception as e:
+            logging.error(f"Error fetching or storing data: {e}")
+
+
+
+# Main Tkinter setup
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    mainWin = F1TireStrategyApp()
-    mainWin.show()
-    sys.exit(app.exec_())
+    root = tk.Tk()
+    app = F1StatsApp(root)
+    root.mainloop()
